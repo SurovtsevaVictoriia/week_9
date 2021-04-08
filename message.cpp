@@ -9,39 +9,60 @@
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/named_mutex.hpp>
+#include <boost/interprocess/shared_memory_object.hpp>
 
 using chat = std::vector <struct Message>;
 
 int Id = -1;
 
-////how many unread messges process has(actually needs to be in shm)
-//int New_Messages = 0;
-
 //if true then process wont be sendeing messages anymore
 bool IsEnded = false;
 
+const std::string line = "-------------------------------------\n";
 
 const std::string shared_memory_name = "n_shared_memory";
 const std::string mutex_name = "n_mutex";
 const std::string process_num_name = "n_process_num";
 const std::string new_messages_name = "n_new_msgs";
 const std::string Chat_name = "n_Chat";
+
 //message struct
 struct Message {
 
     Message() {};
-    Message(std::string text_,int sender_id) {
+    Message(std::string text_,int sender_id = 0) {
         sender = sender_id;
         text = text_;
+    }
+
+    void print() {
+        std::cout << line << "sender process: " << this->sender << "\n " << this->text << "\n" << line;
     }
    
     std::string text;
     unsigned int sender;
 };
 
+void print_chat(int N) {
+
+    using namespace boost::interprocess;
+    managed_shared_memory segment(open_only, shared_memory_name.c_str());
+    chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
+    interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
+
+    std::cout << N << " previous messages: \n";
+
+    for (int i = 0; i < N; ++i) {
+
+        m_mutex->lock();
+        std::cout << (m_Chat + m_Chat->size() - i);
+        m_mutex->unlock();
+    }
+    
+}
+
 //output operator
 std::ostream& operator<< (std::ostream& out, const Message& message) {
-
     return out << "sender process: " << message.sender << "\n " << message.text << "\n";
 };
 
@@ -50,16 +71,21 @@ void thread_func_read() {
 
     using namespace boost::interprocess;
     managed_shared_memory segment(open_only, shared_memory_name.c_str());
+    chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
+    interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
+    int* m_New_Messages = segment.find<int>(new_messages_name.c_str()).first;
 
     while (true) {
         if (IsEnded == true) return;
 
         
-       /* for (int i = 0; i < New_Messages; ++i) {
-            m_mutex.lock();
-            std::cout << Chat[Chat.size() -1 - i];
-            m_mutex.unlock();
-        }*/
+        for (int i = 0; i < *m_New_Messages; ++i) {
+
+            m_mutex->lock();            
+            std::cout << (m_Chat + m_Chat->size() - i) ;
+            m_mutex->unlock();
+        }
+
         using namespace std::chrono_literals;
         std::this_thread::sleep_for(100ms);
     }
@@ -72,15 +98,19 @@ void thread_func_write() {
 
     using namespace boost::interprocess;
     managed_shared_memory segment(open_only, shared_memory_name.c_str());
-   
+    chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
+    interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
+    int* m_New_Messages = segment.find<int>(new_messages_name.c_str()).first;
+
     std::string text;
+
     while(std::getline(std::cin, text) && (text != "cancel")){
 
+        m_mutex->lock();
+        m_Chat->push_back(Message(text));
+        *m_New_Messages++;
+        m_mutex->unlock();
 
-        segment.find<boost::interprocess::interprocess_mutex>("n_mutex").first.lock();
-        Chat.push_back(Message(text, id));
-        New_Messages++;
-        m_mutex.unlock();
     }
 
     IsEnded = true;
@@ -101,9 +131,6 @@ int main(int argc, char** argv) {
     Id = atoi(argv[0]);
     std::cout << " process ID: " << Id << "\n";
    
-    
-   
-   
     //shread memory created
     managed_shared_memory shared_memory(open_or_create, shared_memory_name.c_str(), 10000 * sizeof(char));
 
@@ -115,6 +142,7 @@ int main(int argc, char** argv) {
         shared_memory.find_or_construct < boost::interprocess::interprocess_mutex >(
             mutex_name.c_str())();
 
+    print_chat(5);
 
     //process counter
     int* process_num = shared_memory.find_or_construct<int>(process_num_name.c_str())();
