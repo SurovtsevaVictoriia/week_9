@@ -4,7 +4,6 @@
 #include <mutex>
 #include <chrono>
 
-
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -12,6 +11,8 @@
 #include <boost/interprocess/sync/interprocess_condition.hpp>
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
+#include <boost/interprocess/containers/map.hpp>
+//#include <D:\boost_1_75_0\boost_1_75_0\stage\lib\libboost_date_time-vc142-mt-x64-1_75.lib>
 
 using chat = std::vector <struct Message>;
 
@@ -31,7 +32,7 @@ const std::string Chat_name = "n_Chat";
 //message struct
 struct Message {
 
-    Message() {};
+    Message() { };
     Message(std::string text_,int sender_id = 0) {
         sender = sender_id;
         text = text_;
@@ -41,8 +42,8 @@ struct Message {
         std::cout << line << "sender process: " << this->sender << "\n " << this->text << "\n" << line;
     }
    
-    std::string text;
-    unsigned int sender;
+    std::string text = "-";
+    unsigned int sender = 0;
 };
 
 void print_chat(int N) {
@@ -96,7 +97,8 @@ void thread_func_read() {
 }
 
 //pushes getlined text in vector in shared memory
-void thread_func_write() {
+void thread_func_write(int& id) {
+    std::cout << "you can write your messages now\n";
 
     using namespace boost::interprocess;
     managed_shared_memory segment(open_only, shared_memory_name.c_str());
@@ -109,8 +111,8 @@ void thread_func_write() {
     while(std::getline(std::cin, text) && (text != "cancel")){
 
         m_mutex->lock();
-        m_Chat->push_back(Message(text));
-        *m_New_Messages++;
+        m_Chat->push_back(Message(text, id));
+        (*m_New_Messages)++;
         m_mutex->unlock();
 
     }
@@ -125,7 +127,7 @@ int main(int argc, char** argv) {
 
     using namespace boost::interprocess;
 
-    if (argc != 0) {
+    if ((argc != 2)) {
         std::cout << "incorrect number of arguments\n";
         return -1;
     }
@@ -136,7 +138,7 @@ int main(int argc, char** argv) {
     //shread memory created
     managed_shared_memory shared_memory(open_or_create, shared_memory_name.c_str(), 10000 * sizeof(char));
 
-    mapped_region region(shared_memory,read_write);
+    //mapped_region region(shared_memory,read_write);
 
     //named mutex created 
    
@@ -144,11 +146,11 @@ int main(int argc, char** argv) {
         shared_memory.find_or_construct < boost::interprocess::interprocess_mutex >(
             mutex_name.c_str())();
 
-    print_chat(5);
+    //print_chat(5);
 
     //process counter
     int* process_num = shared_memory.find_or_construct<int>(process_num_name.c_str())();
-    *process_num++;
+    (*process_num)++;
 
     //unread messages counter(?)
     int* new_messages = shared_memory.find_or_construct<int>(new_messages_name.c_str())();
@@ -157,9 +159,9 @@ int main(int argc, char** argv) {
 
     //started separate the thread in process fo reading and writing
     std::thread read_thread(thread_func_read);
-    std::thread write_thread(thread_func_write);
+    std::thread write_thread(thread_func_write, std::ref(Id));
 
-    *process_num--;
+    (*process_num)--;
     if (*process_num == 0 ) shared_memory_object::remove(shared_memory_name.c_str()); // !
     
 
