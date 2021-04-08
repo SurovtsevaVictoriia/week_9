@@ -12,7 +12,7 @@
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/interprocess/containers/map.hpp>
-//#include <D:\boost_1_75_0\boost_1_75_0\stage\lib\libboost_date_time-vc142-mt-x64-1_75.lib>
+//D:\boost_1_75_0\boost_1_75_0\stage\lib\libboost_date_time-vc142-mt-x64-1_75.lib
 
 using chat = std::vector <struct Message>;
 
@@ -33,7 +33,7 @@ const std::string Chat_name = "n_Chat";
 struct Message {
 
     Message() { };
-    Message(std::string text_,int sender_id = 0) {
+    Message(std::string text_, int sender_id = 0) {
         sender = sender_id;
         text = text_;
     }
@@ -41,7 +41,7 @@ struct Message {
     void print() {
         std::cout << line << "sender process: " << this->sender << "\n " << this->text << "\n" << line;
     }
-   
+
     std::string text = "-";
     unsigned int sender = 0;
 };
@@ -53,15 +53,23 @@ void print_chat(int N) {
     chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
     interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
 
-    std::cout << N << " previous messages: \n";
+    int m = (m_Chat->size() > N) ? N : m_Chat->size();
 
-    for (int i = 0; i < N; ++i) {
+    if (m == 0) {
+        std::cout << "no previous messages\n";
+        return;
+    }
+
+    std::cout << m << " previous messages: \n";
+
+    for (int i = 0; i < m; ++i) {
 
         m_mutex->lock();
         std::cout << (m_Chat + m_Chat->size() - i);
         m_mutex->unlock();
     }
-    
+    return;
+
 }
 
 //output operator
@@ -81,19 +89,19 @@ void thread_func_read() {
     while (true) {
         if (IsEnded == true) return;
 
-        
+
         for (int i = 0; i < *m_New_Messages; ++i) {
 
-            m_mutex->lock();            
-            std::cout << (m_Chat + m_Chat->size() - i) ;
+            m_mutex->lock();
+            std::cout << (m_Chat + m_Chat->size() - i);
             m_mutex->unlock();
         }
 
         using namespace std::chrono_literals;
         std::this_thread::sleep_for(100ms);
     }
-        return;
-   
+    return;
+
 }
 
 //pushes getlined text in vector in shared memory
@@ -108,7 +116,7 @@ void thread_func_write(int& id) {
 
     std::string text;
 
-    while(std::getline(std::cin, text) && (text != "cancel")){
+    while (std::getline(std::cin, text) && (text != "cancel")) {
 
         m_mutex->lock();
         m_Chat->push_back(Message(text, id));
@@ -134,19 +142,19 @@ int main(int argc, char** argv) {
 
     Id = atoi(argv[0]);
     std::cout << " process ID: " << Id << "\n";
-   
+
     //shread memory created
     managed_shared_memory shared_memory(open_or_create, shared_memory_name.c_str(), 10000 * sizeof(char));
 
     //mapped_region region(shared_memory,read_write);
 
     //named mutex created 
-   
+
     auto mutex =
         shared_memory.find_or_construct < boost::interprocess::interprocess_mutex >(
             mutex_name.c_str())();
 
-    //print_chat(5);
+    print_chat(5);
 
     //process counter
     int* process_num = shared_memory.find_or_construct<int>(process_num_name.c_str())();
@@ -162,8 +170,8 @@ int main(int argc, char** argv) {
     std::thread write_thread(thread_func_write, std::ref(Id));
 
     (*process_num)--;
-    if (*process_num == 0 ) shared_memory_object::remove(shared_memory_name.c_str()); // !
-    
+    if (*process_num == 0) shared_memory_object::remove(shared_memory_name.c_str()); // !
+
 
     return EXIT_SUCCESS;
 }
