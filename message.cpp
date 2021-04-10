@@ -3,6 +3,8 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <stdexcept>
+#include <exception>
 
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/string.hpp>
@@ -12,6 +14,15 @@
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/interprocess/containers/map.hpp>
+#include <boost/interprocess/errors.hpp>
+#include <boost/interprocess/exceptions.hpp>
+
+#include <boost/interprocess/detail/config_begin.hpp>
+#include <boost/interprocess/detail/workaround.hpp>
+#include <boost/interprocess/errors.hpp>
+#include <stdexcept>
+#include <new>
+
 //D:\boost_1_75_0\boost_1_75_0\stage\lib\libboost_date_time-vc142-mt-x64-1_75.lib
 
 using chat = std::vector <struct Message>;
@@ -28,6 +39,7 @@ const std::string mutex_name = "n_mutex";
 const std::string process_num_name = "n_process_num";
 const std::string new_messages_name = "n_new_msgs";
 const std::string Chat_name = "n_Chat";
+const std::string condition_variable_name = "n_cond_var";
 
 //message struct
 struct Message {
@@ -56,11 +68,11 @@ void print_chat(int N) {
     int m = (m_Chat->size() > N) ? N : m_Chat->size();
 
     if (m == 0) {
-        std::cout << "no previous messages\n";
+        std::cout << line << "no previous messages\n" << line;
         return;
     }
 
-    std::cout << m << " previous messages: \n";
+    std::cout << line << m << " previous messages: \n";
 
     for (int i = 0; i < m; ++i) {
 
@@ -80,6 +92,9 @@ std::ostream& operator<< (std::ostream& out, const Message& message) {
 //reads last messages and outputs on screen
 void thread_func_read() {
 
+    std::cout << "read thread engaged\n" <<  std::endl;
+
+
     using namespace boost::interprocess;
     managed_shared_memory segment(open_only, shared_memory_name.c_str());
     chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
@@ -97,6 +112,8 @@ void thread_func_read() {
             m_mutex->unlock();
         }
 
+        //m_New_Messages = 0;
+
         using namespace std::chrono_literals;
         std::this_thread::sleep_for(100ms);
     }
@@ -106,25 +123,43 @@ void thread_func_read() {
 
 //pushes getlined text in vector in shared memory
 void thread_func_write(int& id) {
+
+    std::cout << "write thread engaged\n" << std::endl;
+
     std::cout << "you can write your messages now\n";
 
     using namespace boost::interprocess;
-    managed_shared_memory segment(open_only, shared_memory_name.c_str());
-    chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
-    interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
-    int* m_New_Messages = segment.find<int>(new_messages_name.c_str()).first;
+   try {
+        std::cout << "in try section:\n";
+        managed_shared_memory segment(open_only, shared_memory_name.c_str());
+        std::cout << "managed shared memory accessed\n";
+        chat* m_Chat = segment.find<chat>(Chat_name.c_str()).first;
+        std::cout << "chat accessed\n";
+        interprocess_mutex* m_mutex = segment.find<interprocess_mutex>(mutex_name.c_str()).first;
+        std::cout << "mutex accessed\n";
+        int* m_New_Messages = segment.find<int>(new_messages_name.c_str()).first;
+        std::cout << "new messages accessed\n";
 
-    std::string text;
+        std::string text;
 
-    while (std::getline(std::cin, text) && (text != "cancel")) {
+        std::cout << "entering while section\n";
 
-        m_mutex->lock();
-        m_Chat->push_back(Message(text, id));
-        (*m_New_Messages)++;
-        m_mutex->unlock();
+        while (std::getline(std::cin, text) && (text != "cancel")) {
 
+            m_mutex->lock();
+            m_Chat->push_back(Message(text, id));
+            (*m_New_Messages)++;
+            m_mutex->unlock();
+
+        }
+    }
+    catch (interprocess_exception) // обработчик исключений 
+    {
+        std::cerr << "Error: \n";
+        return;
     }
 
+    std::cout << "after try section\n";
     IsEnded = true;
     return;
 }
@@ -133,28 +168,35 @@ void thread_func_write(int& id) {
 
 int main(int argc, char** argv) {
 
+
+
     using namespace boost::interprocess;
 
-    if ((argc != 2)) {
+    shared_memory_object::remove(shared_memory_name.c_str());
+
+   /* if ((argc != 2)) {
         std::cout << "incorrect number of arguments\n";
         return -1;
-    }
+    }*/
 
     Id = atoi(argv[0]);
     std::cout << " process ID: " << Id << "\n";
 
     //shread memory created
     managed_shared_memory shared_memory(open_or_create, shared_memory_name.c_str(), 10000 * sizeof(char));
+    std::cout << "shared memory created" << std::endl;
 
     //mapped_region region(shared_memory,read_write);
 
     //named mutex created 
 
-    auto mutex =
+   auto mutex =
         shared_memory.find_or_construct < boost::interprocess::interprocess_mutex >(
             mutex_name.c_str())();
+    std::cout << "mutex created" << std::endl;
 
-    print_chat(5);
+   
+   
 
     //process counter
     int* process_num = shared_memory.find_or_construct<int>(process_num_name.c_str())();
@@ -165,13 +207,29 @@ int main(int argc, char** argv) {
     //chat history itself
     chat* ptr = shared_memory.find_or_construct<chat>(Chat_name.c_str())();
 
+    print_chat(5);
+    std::cout << "chat printed " << std::endl;
+
     //started separate the thread in process fo reading and writing
+   
     std::thread read_thread(thread_func_read);
     std::thread write_thread(thread_func_write, std::ref(Id));
 
+    read_thread.join();
+    write_thread.join();
+
+    std::cout << "threads joined\n";
+   
+
     (*process_num)--;
-    if (*process_num == 0) shared_memory_object::remove(shared_memory_name.c_str()); // !
+    if (*process_num == 0) {
+        std::cout << "last process closed\n";
+        shared_memory_object::remove(shared_memory_name.c_str());
+    }
+    // !
 
 
-    return EXIT_SUCCESS;
+    return 0;
 }
+
+//rewrite with conditional variable
